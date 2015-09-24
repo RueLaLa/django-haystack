@@ -80,6 +80,7 @@ def do_update(backend, index, qs, start, end, total, verbosity=1, commit=True,
     retries = 0
     while retries < max_retries:
         try:
+            index.pre_process_data(current_qs)
             # FIXME: Get the right backend.
             backend.update(index, current_qs, commit=commit)
             if verbosity >= 2 and retries:
