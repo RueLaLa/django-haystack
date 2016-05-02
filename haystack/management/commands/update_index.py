@@ -22,6 +22,7 @@ DEFAULT_AGE = None
 DEFAULT_MAX_RETRIES = 5
 
 LOG = multiprocessing.log_to_stderr(level=logging.WARNING)
+logger = logging.getLogger('haystack')
 
 
 def update_worker(args):
@@ -63,7 +64,7 @@ def update_worker(args):
 
 def do_update(backend, index, qs, start, end, total, verbosity=1, commit=True,
               max_retries=DEFAULT_MAX_RETRIES):
-
+    start_time = now()
     # Get a clone of the QuerySet so that the cache doesn't bloat up
     # in memory. Useful when reindexing large amounts of data.
     small_cache_qs = qs.all()
@@ -71,23 +72,37 @@ def do_update(backend, index, qs, start, end, total, verbosity=1, commit=True,
 
     is_parent_process = hasattr(os, 'getppid') and os.getpid() == os.getppid()
 
-    if verbosity >= 2:
-        if is_parent_process:
-            print("  indexed %s - %d of %d." % (start + 1, end, total))
-        else:
-            print("  indexed %s - %d of %d (worker PID: %s)." % (start + 1, end, total, os.getpid()))
-
     retries = 0
     while retries < max_retries:
         try:
             index.pre_process_data(current_qs)
             # FIXME: Get the right backend.
             backend.update(index, current_qs, commit=commit)
-            if verbosity >= 2 and retries:
-                print('Completed indexing {} - {}, tried {}/{} times'.format(start + 1,
-                                                                             end,
-                                                                             retries + 1,
-                                                                             max_retries))
+            time_delta = now() - start_time
+
+            if verbosity >= 2:
+                if is_parent_process:
+                    logger.info("  indexed {} - {} of {} in {}.  Took {}".format(
+                        start + 1,
+                        end, total,
+                        time_delta
+                    ))
+                else:
+                    logger.info("  indexed {} - {} of {} (by {}).  Took {}".format(
+                        start + 1,
+                        end,
+                        total,
+                        os.getpid(),
+                        time_delta
+                    ))
+
+                if retries:
+                    logger.info('Completed indexing {} - {}, tried {}/{} times'.format(
+                        start + 1,
+                        end,
+                        retries + 1,
+                        max_retries
+                    ))
             break
         except Exception as exc:
             # Catch all exceptions which do not normally trigger a system exit, excluding SystemExit and
@@ -226,7 +241,7 @@ class Command(BaseCommand):
                 index = unified_index.get_index(model)
             except NotHandled:
                 if self.verbosity >= 2:
-                    self.stdout.write("Skipping '%s' - no index." % model)
+                    logger.info("Skipping '%s' - no index." % model)
                 continue
 
             if self.workers > 0:
@@ -241,7 +256,7 @@ class Command(BaseCommand):
             total = qs.count()
 
             if self.verbosity >= 1:
-                self.stdout.write(u"Indexing %d %s" % (
+                logger.info(u"Indexing %d %s" % (
                     total, force_text(model._meta.verbose_name_plural))
                 )
 
@@ -314,12 +329,12 @@ class Command(BaseCommand):
 
                 if stale_records:
                     if self.verbosity >= 1:
-                        self.stdout.write("  removing %d stale records." % len(stale_records))
+                        logger.info("  removing %d stale records." % len(stale_records))
 
                     for rec_id in stale_records:
                         # Since the PK was not in the database list, we'll delete the record from the search
                         # index:
                         if self.verbosity >= 2:
-                            self.stdout.write("  removing %s." % rec_id)
+                            logger.info("  removing %s." % rec_id)
 
                         backend.remove(rec_id, commit=self.commit)
