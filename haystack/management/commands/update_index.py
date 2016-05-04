@@ -82,9 +82,10 @@ def do_update(backend, index, qs, start, end, total, verbosity=1, commit=True,
 
             if verbosity >= 2:
                 if is_parent_process:
-                    logger.info("  indexed {} - {} of {} in {}.  Took {}".format(
+                    logger.info("  indexed {} - {} of {}.  Took {}".format(
                         start + 1,
-                        end, total,
+                        end,
+                        total,
                         time_delta
                     ))
                 else:
