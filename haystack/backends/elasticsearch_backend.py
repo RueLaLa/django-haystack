@@ -189,8 +189,8 @@ class ElasticsearchSearchBackend(BaseSearchBackend):
 
         bulk(self.conn, prepped_docs, index=self.index_name, doc_type='modelresult')
 
-        if commit:
-            self.conn.indices.refresh(index=self.index_name)
+        # if commit:
+        #     self.conn.indices.refresh(index=self.index_name)
 
     def remove(self, obj_or_string, commit=True):
         doc_id = get_identifier(obj_or_string)
@@ -209,8 +209,8 @@ class ElasticsearchSearchBackend(BaseSearchBackend):
         try:
             self.conn.delete(index=self.index_name, doc_type='modelresult', id=doc_id, ignore=404)
 
-            if commit:
-                self.conn.indices.refresh(index=self.index_name)
+            # if commit:
+            #     self.conn.indices.refresh(index=self.index_name)
         except elasticsearch.TransportError as e:
             if not self.silently_fail:
                 raise
