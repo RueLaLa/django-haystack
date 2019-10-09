@@ -15,7 +15,6 @@ __version__ = (2, 5, 0)
 
 default_app_config = 'haystack.apps.HaystackConfig'
 
-
 # Help people clean up from 1.X.
 if hasattr(settings, 'HAYSTACK_SITECONF'):
     raise ImproperlyConfigured('The HAYSTACK_SITECONF setting is no longer used & can be removed.')
