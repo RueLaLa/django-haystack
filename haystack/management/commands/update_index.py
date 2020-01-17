@@ -8,7 +8,7 @@ import time
 from datetime import timedelta
 
 from django.core.management.base import BaseCommand
-from django.db import close_old_connections, reset_queries
+from django.db import close_old_connections, connections, reset_queries
 from django.utils.encoding import force_text, smart_bytes
 from django.utils.timezone import now
 
@@ -290,6 +290,11 @@ class Command(BaseCommand):
 
                 pool.close()
                 pool.join()
+                # Need to force the connections close here. The connection object after the multiprocess
+                # pool is done is most likely stale.  For whatever reason, django is unable to detect this.
+                # It tries to reuse the connection object that had been created before the worker pool
+                # started.  For whatever reason `close_old_conneections` cannot tell that the object is stale.
+                connections.close_all()
 
             if self.remove:
                 if self.start_date or self.end_date or total <= 0:
