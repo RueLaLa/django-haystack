@@ -8,7 +8,7 @@ import time
 from datetime import timedelta
 
 from django.core.management.base import BaseCommand
-from django.db import close_old_connections, reset_queries
+from django.db import close_old_connections, connections, reset_queries
 from django.utils.encoding import force_text, smart_bytes
 from django.utils.timezone import now
 
@@ -21,12 +21,12 @@ DEFAULT_BATCH_SIZE = None
 DEFAULT_AGE = None
 DEFAULT_MAX_RETRIES = 5
 
-LOG = multiprocessing.log_to_stderr(level=logging.WARNING)
+logger = logging.getLogger('haystack')
 
 
 def update_worker(args):
     if len(args) != 10:
-        LOG.error('update_worker received incorrect arguments: %r', args)
+        logger.error('update_worker received incorrect arguments: %r', args)
         raise ValueError('update_worker received incorrect arguments')
 
     model, start, end, total, using, start_date, end_date, verbosity, commit, max_retries = args
@@ -63,7 +63,7 @@ def update_worker(args):
 
 def do_update(backend, index, qs, start, end, total, verbosity=1, commit=True,
               max_retries=DEFAULT_MAX_RETRIES):
-
+    start_time = now()
     # Get a clone of the QuerySet so that the cache doesn't bloat up
     # in memory. Useful when reindexing large amounts of data.
     small_cache_qs = qs.all()
@@ -71,22 +71,38 @@ def do_update(backend, index, qs, start, end, total, verbosity=1, commit=True,
 
     is_parent_process = hasattr(os, 'getppid') and os.getpid() == os.getppid()
 
-    if verbosity >= 2:
-        if is_parent_process:
-            print("  indexed %s - %d of %d." % (start + 1, end, total))
-        else:
-            print("  indexed %s - %d of %d (worker PID: %s)." % (start + 1, end, total, os.getpid()))
-
     retries = 0
     while retries < max_retries:
         try:
+            index.pre_process_data(current_qs)
             # FIXME: Get the right backend.
             backend.update(index, current_qs, commit=commit)
-            if verbosity >= 2 and retries:
-                print('Completed indexing {} - {}, tried {}/{} times'.format(start + 1,
-                                                                             end,
-                                                                             retries + 1,
-                                                                             max_retries))
+            time_delta = now() - start_time
+
+            if verbosity >= 2:
+                if is_parent_process:
+                    logger.info("  indexed {} - {} of {}.  Took {}".format(
+                        start + 1,
+                        end,
+                        total,
+                        time_delta
+                    ))
+                else:
+                    logger.info("  indexed {} - {} of {} (by {}).  Took {}".format(
+                        start + 1,
+                        end,
+                        total,
+                        os.getpid(),
+                        time_delta
+                    ))
+
+                if retries:
+                    logger.info('Completed indexing {} - {}, tried {}/{} times'.format(
+                        start + 1,
+                        end,
+                        retries + 1,
+                        max_retries
+                    ))
             break
         except Exception as exc:
             # Catch all exceptions which do not normally trigger a system exit, excluding SystemExit and
@@ -106,10 +122,10 @@ def do_update(backend, index, qs, start, end, total, verbosity=1, commit=True,
                 error_msg += ' (pid %(pid)s): %(exc)s'
 
             if retries >= max_retries:
-                LOG.error(error_msg, error_context, exc_info=True)
+                logger.error(error_msg, error_context, exc_info=True)
                 raise
             elif verbosity >= 2:
-                LOG.warning(error_msg, error_context, exc_info=True)
+                logger.warning(error_msg, error_context, exc_info=True)
 
             # If going to try again, sleep a bit before
             time.sleep(2 ** retries)
@@ -184,9 +200,9 @@ class Command(BaseCommand):
         end_date = options.get('end_date')
 
         if self.verbosity > 2:
-            LOG.setLevel(logging.DEBUG)
+            logger.setLevel(logging.DEBUG)
         elif self.verbosity > 1:
-            LOG.setLevel(logging.INFO)
+            logger.setLevel(logging.INFO)
 
         if age is not None:
             self.start_date = now() - timedelta(hours=int(age))
@@ -213,7 +229,7 @@ class Command(BaseCommand):
                 try:
                     self.update_backend(label, using)
                 except:
-                    LOG.exception("Error updating %s using %s ", label, using)
+                    logger.exception("Error updating %s using %s ", label, using)
                     raise
 
     def update_backend(self, label, using):
@@ -225,7 +241,7 @@ class Command(BaseCommand):
                 index = unified_index.get_index(model)
             except NotHandled:
                 if self.verbosity >= 2:
-                    self.stdout.write("Skipping '%s' - no index." % model)
+                    logger.info("Skipping '%s' - no index." % model)
                 continue
 
             if self.workers > 0:
@@ -240,7 +256,7 @@ class Command(BaseCommand):
             total = qs.count()
 
             if self.verbosity >= 1:
-                self.stdout.write(u"Indexing %d %s" % (
+                logger.info(u"Indexing %d %s" % (
                     total, force_text(model._meta.verbose_name_plural))
                 )
 
@@ -273,6 +289,11 @@ class Command(BaseCommand):
 
                 pool.close()
                 pool.join()
+                # Need to force the connections close here. The connection object after the multiprocess
+                # pool is done is most likely stale.  For whatever reason, django is unable to detect this.
+                # It tries to reuse the connection object that had been created before the worker pool
+                # started.  For whatever reason `close_old_conneections` cannot tell that the object is stale.
+                connections.close_all()
 
             if self.remove:
                 if self.start_date or self.end_date or total <= 0:
@@ -313,12 +334,12 @@ class Command(BaseCommand):
 
                 if stale_records:
                     if self.verbosity >= 1:
-                        self.stdout.write("  removing %d stale records." % len(stale_records))
+                        logger.info("  removing %d stale records." % len(stale_records))
 
                     for rec_id in stale_records:
                         # Since the PK was not in the database list, we'll delete the record from the search
                         # index:
                         if self.verbosity >= 2:
-                            self.stdout.write("  removing %s." % rec_id)
+                            logger.info("  removing %s." % rec_id)
 
                         backend.remove(rec_id, commit=self.commit)

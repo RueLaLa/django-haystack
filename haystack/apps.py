@@ -15,12 +15,6 @@ class HaystackConfig(AppConfig):
     stream = None
 
     def ready(self):
-        # Setup default logging.
-        log = logging.getLogger('haystack')
-        self.stream = logging.StreamHandler()
-        self.stream.setLevel(logging.INFO)
-        log.addHandler(self.stream)
-
         # Setup the signal processor.
         if not self.signal_processor:
             signal_processor_path = getattr(settings, 'HAYSTACK_SIGNAL_PROCESSOR', 'haystack.signals.BaseSignalProcessor')
