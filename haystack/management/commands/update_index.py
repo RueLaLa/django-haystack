@@ -21,13 +21,12 @@ DEFAULT_BATCH_SIZE = None
 DEFAULT_AGE = None
 DEFAULT_MAX_RETRIES = 5
 
-LOG = multiprocessing.log_to_stderr(level=logging.WARNING)
 logger = logging.getLogger('haystack')
 
 
 def update_worker(args):
     if len(args) != 10:
-        LOG.error('update_worker received incorrect arguments: %r', args)
+        logger.error('update_worker received incorrect arguments: %r', args)
         raise ValueError('update_worker received incorrect arguments')
 
     model, start, end, total, using, start_date, end_date, verbosity, commit, max_retries = args
@@ -123,10 +122,10 @@ def do_update(backend, index, qs, start, end, total, verbosity=1, commit=True,
                 error_msg += ' (pid %(pid)s): %(exc)s'
 
             if retries >= max_retries:
-                LOG.error(error_msg, error_context, exc_info=True)
+                logger.error(error_msg, error_context, exc_info=True)
                 raise
             elif verbosity >= 2:
-                LOG.warning(error_msg, error_context, exc_info=True)
+                logger.warning(error_msg, error_context, exc_info=True)
 
             # If going to try again, sleep a bit before
             time.sleep(2 ** retries)
@@ -201,9 +200,9 @@ class Command(BaseCommand):
         end_date = options.get('end_date')
 
         if self.verbosity > 2:
-            LOG.setLevel(logging.DEBUG)
+            logger.setLevel(logging.DEBUG)
         elif self.verbosity > 1:
-            LOG.setLevel(logging.INFO)
+            logger.setLevel(logging.INFO)
 
         if age is not None:
             self.start_date = now() - timedelta(hours=int(age))
@@ -230,7 +229,7 @@ class Command(BaseCommand):
                 try:
                     self.update_backend(label, using)
                 except:
-                    LOG.exception("Error updating %s using %s ", label, using)
+                    logger.exception("Error updating %s using %s ", label, using)
                     raise
 
     def update_backend(self, label, using):
